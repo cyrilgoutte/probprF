@@ -1,0 +1,137 @@
+---
+title: "A Probabilistic Interpretation of Precision, Recall and F-Score, with Implication for Evaluation"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(latex2exp)
+```
+
+## Code for Goutte & Gaussier's paper at ECIR 2005
+
+This is example code reproducing some examples and graphs from the ECIR-2005 paper "A Probabilistic Interpretation of Precision, Recall and F-Score, with Implication for Evaluation" by Cyril Goutte and Eric Gaussier. This paper is receiving significant citation even 15 years after it was published (in fact it got its highest #citations so far in 2020), and received the ECIR test of time award in 2016, which suggest that some peopl did find it useful.
+
+## Section 2.2: Example
+
+We consider an example where system 1 returns 10 true positives and 10 false positives (on some corpus), while system 2 returns 3 true positives and 2 false positives (on a possibly different corpus):
+
+```{r example2.2}
+#System 1
+TP1 <- 10
+FP1 <- 10
+# System 2
+TP2 <- 3
+FP2 <- 2
+```
+
+Using the traditional formula for precision (Eq. 1 in the paper), system 2 has a precision of `r TP2/(TP2+FP2)`, which seems largely superior to system 1, with a precision of `r TP1/(TP1+FP1)`. The probabilistic view tells another story.
+
+Assuming Jeffrey’s prior, we plot the posteriors for systems 1 and system 2 precisions in the following plot (Figure 1 in the paper):
+```{r figure1, echo=FALSE}
+pp <- seq(from=0, to=1, by=.01)
+lbd <- 1/2     # Jeffrey's non-informative prior parameter
+plot(c(0, 1), c(0, 3.6), xlab="PRECISION", ylab="DENSITY", type="n")
+# Plotting the distributions
+lines(pp, dbeta(pp, TP1+lbd, FP1+lbd), lty=1)
+lines(pp, dbeta(pp, TP2+lbd, FP2+lbd), lty=2)
+# Adding the ususal estimates
+abline(v=TP1/(TP1+FP1), lty=1)
+text(.5, 2.5, label=TeX('p_1'), pos=4)
+abline(v=TP2/(TP2+FP2), lty=2)
+text(.6, 1.0, label=TeX('p_2'), pos=4)
+# Adding the legend
+legend("topleft", legend=c("TP=10, FP-10", "TP=3, FP=2"), lty=c(1,2))
+```
+
+The vertical bars show the empirical estimates. In the case of system 1, the empirical estimate of `r TP1/(TP1+FP1)` is also the expectation and the mode (as the distribution is symmetric); in the case of system 2, the expectation is `r (TP2 + lbd)/(TP2 + FP2 + 2*lbd)` and the mode is `r (TP2 + lbd - 1)/(TP2 + FP2 + 2*lbd - 2)`. It is clear that, although its empirical value is higher, system 2 also has much higher variability. As a consequence, the probability that system 2 outperforms system 1 with respect to precision is actually only around 65%, which implies that it is not significant at any reasonable level.
+
+Here is how to compute the probability that the precision of system 2 is higher that that of system 1, using a sampling-based numerical approximation:
+```{r psample}
+nb.sample <- 100000    # Sample size, higher is better 
+p1.sample <- rbeta(nb.sample, TP1 + lbd, FP1 + lbd)
+p2.sample <- rbeta(nb.sample, TP2 + lbd, FP2 + lbd)
+hist(p2.sample, breaks=25, freq=FALSE, 
+     xlab="PRECISION (System 2)", ylab="DENSITY",
+     main="Distribution (empirical) for System 2 Precision")
+sum(p2.sample > p1.sample)/nb.sample
+```
+
+The histogran shows that the empirical sample matches the distribution plotted in Fig. 1 (so we are samplign this right), and the empirical estimate that system 2 out-performs system 1 (in precision) is `r sum(p2.sample > p1.sample)/nb.sample*100` percent.
+
+## Section 2.3: F-score
+
+Similarly there is no general closed-form expression (that I know of) for computing the probability that F-score for one system is higher than for another system. However it is easy to estimate this by sampling, in a manner very similar to what we just did for precision.
+
+Ths small twist is that we need to sample two gamma distributions in order to obtain the sample of F-scores (Eq. 11 in the paper). Let us assume now that system 1 suffers on precision because it is doing well on recall, with only 2 false negatives, while system 2 has 2 as well.
+```{r sampleF}
+FN1 <- 0
+FN2 <- 7
+# Sampling Gamma distributions to produce F-score samples
+U <- rgamma(nb.sample, shape=TP1+lbd, scale=2)
+V <- rgamma(nb.sample, FP1+FN1+2*lbd, scale=1)
+F1.sample <- U/(U+V)     # Equation 11 for system 1
+U <- rgamma(nb.sample, TP2+lbd, scale=2)
+V <- rgamma(nb.sample, FP2+FN2+2*lbd, scale=1)
+F2.sample <- U/(U+V)     # Equation 11 for system 2
+
+sum(F1.sample > F2.sample)/nb.sample
+```
+
+System 1 has a F-score of `r round(2*TP1/(2*TP1+FP1+FN1), 3)`, versus `r round(2*TP2/(2*TP2+FP2+FN2), 3)` for system 2 (due to a low recall). The probability that system 1 outperforms system 2 in F-score is ~`r round(sum(F1.sample > F2.sample)/nb.sample*100, 2)` percent, which is borderline significant (depending on your tolerance to risk).
+
+Here are the histograms of F-scores for both systems, with the empirical estimates.
+```{r histoF}
+par(mfrow=c(2,1)) 
+hist(F1.sample, breaks=seq(from=0, to=1, by=1/25), freq=FALSE,
+     xlab="F-score (System 1)", ylab="DENSITY", main="System 1")
+abline(v=2*TP1/(2*TP1+FP1+FN1))
+hist(F2.sample, breaks=seq(from=0, to=1, by=1/25), freq=FALSE,
+     xlab="F-score (System 2)", ylab="DENSITY", main="System 2")
+abline(v=2*TP2/(2*TP2+FP2+FN2))
+```
+
+## Section 3: Paired Comparison
+
+When doing a paired comparison between two systems on a single dataset, we have three possible outcomes on each testing instance of the dataset:
+
+1. System 1 out-performs system 2 ($N_1$ instances);
+2. System 2 out-performs system 1 ($N_2$ instances);
+3. Both system agree, right or wrong ($N_3$ instances, $N=N_1+N_2+N_3$).
+
+The posterior distribution for these three probabilities is a Dirichlet distribution given by Eq. 16 in the paper, essentially the generalization of the Beta distribution above to three parameters. The easiest way to sample a K-parameter Dirichlet distribution is to sample K Gamma variates and then normalise the sample. This is shown for example on the Wikipedia page for the Dirichlet:
+
+https://en.wikipedia.org/wiki/Dirichlet_distribution#Random_number_generation
+
+The additional trick is that we only want to compare the probability of #1 vs. #2, i.e the probability that system 1 beats system 2 vs. the opposite. In order to do that, we only need to sample the first two Gamma distributions and compare them. The third variate only appears in the normalization factor, which is identical for all probabilities and therefore has no impact on whether one is larger than the other.
+
+The following function implements this and estimates the net probability that system 1 outperforms system 2 (i.e probability of #1 minus probability of #2):
+```{r paired}
+paired <- function(n1, n2, nb.sample=100000, lbd=1/2) {
+  # Using the notation from the Dirichlet Wikipedia page here.
+  # The y_k are the Gamma samples
+  y1 <- rgamma(nb.sample, n1+lbd, 1)
+  y2 <- rgamma(nb.sample, n2+lbd, 1)
+  return(sum(y1>y2)/nb.sample)
+}
+```
+
+This is also the probability that the difference between the probabilities is positive, or that the log odds ratio is positive (i.e. odds ratio larger than 1), as explained in the paper right after Eq. 22.
+
+Here are a few examples from Table 2. For category <tt>earn</tt>:
+```{r table2}
+# Category: earn
+paired(17, 4)   # Prob. that ltc>nnn
+paired(48, 12)  # Prob. that lin>p2 (nnn weighting)
+paired(1, 4)    # Prob. that lin>p2 (ltc weighting)
+```
+Depending on your seed, these should be within two standard deviation of the numbers reported in the first row results in Table 2.
+
+Another category mentionned in the paper is <tt>ship</tt>:
+```{r table2b}
+# Category: ship
+paired(6, 11)   # Prob. that ltc>nnn
+paired(22, 4)  # Prob. that lin>p2 (nnn weighting)
+paired(3, 1)    # Prob. that lin>p2 (ltc weighting)
+```
+
